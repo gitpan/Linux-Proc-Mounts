@@ -1,6 +1,6 @@
 package Linux::Proc::Mounts;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use strict;
 use warnings;
@@ -9,23 +9,25 @@ use Carp;
 sub read {
     my ($class, %opts) = @_;
     my $mnt = delete $opts{mnt};
-
+    my $pid = delete $opts{pid};
+    my $file = delete $opts{file};
     %opts and croak "Unknown option(s) ". join(", ", sort keys %opts);
 
-    $mnt = "/proc" unless defined $mnt;
-
-    unless (-d $mnt and (stat _)[12] == 0) {
-        croak "$mnt is not a proc filesystem";
+    unless (defined $file) {
+        $mnt = "/proc" unless defined $mnt;
+        croak "$mnt is not a proc filesystem" unless -d $mnt and (stat _)[12] == 0;
+        $mnt .= "/$pid" if defined $pid;
+        $file = "$mnt/mounts";
     }
+    open my $fh, '<', $file
+        or croak "Unable to open '$file': $!";
 
     my @entries;
-    open my $fh, '<', "$mnt/mounts"
-        or croak "Unable to open $mnt/mounts: $!";
     while (<$fh>) {
         chomp;
         my @entry = split;
         if (@entry != 6) {
-            warn "invalid number of entries in $mnt/mounts line $.";
+            warn "invalid number of entries in $file line $.";
             next;
         }
         $#entry = 3; # ignore the two dummy values at the end
@@ -115,7 +117,7 @@ Linux::Proc::Mounts - Parser for Linux /proc/mounts
 
   use Linux::Proc::Mounts;
 
-  my $m = Linux::Proc::Mount->read;
+  my $m = Linux::Proc::Mounts->read;
 
   my $at = $m->at('/');
   say $_->spec . ' is mounted at /' for (@$at);
@@ -136,9 +138,13 @@ the Linux kernel at C</proc/mounts>.
 The internal representation of the class is an array whose entries can
 be accessed directly unreferencing it. For instance:
 
+  my $mnts = Linux::Proc::Mount->read;
+
   for my $e (@$mnts) {
     say $e->spec . " is mounted at " . $e->file . " as " . $e->fstype;
   }
+
+The methods accepted by the class are as follows:
 
 =over 4
 
@@ -155,7 +161,15 @@ The currently supported options are as follows:
 
 =item mnt => $proc
 
-overrides the default mount point for the procfs at C</proc>.
+Overrides the default mount point for the procfs at C</proc>.
+
+=item pid => $pid
+
+Reads C</proc/$pid/mounts> instead of C</proc/mounts>.
+
+=item file => $filename
+
+Reads the file with the given name.
 
 =back
 
@@ -229,7 +243,7 @@ Returns the line number of the entry inside the /proc/mounts file.
 
 =item $e->shadower
 
-When the filesystem is hiden behind by a later mount performed at the
+When the filesystem is hiden behind a later mount performed at the
 same path. This method returns the entry of the filesystem shadowing
 it.
 
@@ -248,6 +262,10 @@ entries in /proc/mounts are always 0 and so, useless.
 L<fstab(5)> describes the format of the /proc/mounts file.
 
 L<mount(8)> describes the filesystems and the options accepted.
+
+L<Linux::Proc::Mountinfo>. The information offered by the Linux kernel
+through C</proc/$pid/mountinfo> is more detailed so you should
+probably use that module instead of Linux::Proc::Mounts.
 
 L<Sys::Filesystem> provides similar functionality to this module and
 support most common operating systems.
